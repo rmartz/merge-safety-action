@@ -27,7 +27,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "@rmartz/merge-safety": "0.13.0"
+    "@rmartz/merge-safety": "0.14.0"
   },
   "devDependencies": {
     "prettier": "^3.9.9"
