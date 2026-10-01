@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Per-ref concurrency: a new push to a branch cancels its in-flight run, but main
+# is never cancelled (each push to the default branch runs to completion).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  format:
+    name: Format
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts
+      - run: npm run format:check
+
+  install:
+    name: Install pinned CLI
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      # The action's own install step, run from the PR's tree: proves the lockfile
+      # installs from npmjs and the `merge-safety` bin the action invokes exists.
+      # The full evaluate/invalidate path is dogfooded by merge-safety.yml.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+      - run: npm ci --ignore-scripts --omit=dev --no-audit --no-fund
+      - name: Bin resolves
+        run: |
+          set -euo pipefail
+          out="$(node_modules/.bin/merge-safety 2>&1 || true)"
+          printf '%s\n' "$out"
+          printf '%s\n' "$out" | grep -q 'usage: merge-safety evaluate'

@@ -1,0 +1,64 @@
+name: merge-safety
+
+# This repo dogfoods its own action: this is the consumer caller from
+# docs/consuming.md, except that it runs the action from this repo's own tree
+# (`uses: ./`) instead of a released `rmartz/merge-safety-action@<sha>` pin.
+#
+# That is safe on pull_request_target: the checkout below is the BASE branch
+# (github.sha on that event), never the PR head, so a PR's edits to action.yml
+# run only once they have merged. A change to the action therefore reaches this
+# repo's own `merge-safety` check one merge before it reaches any consumer.
+#
+# THE CHECK-RUN NAME `merge-safety` IS A FLEET CONTRACT — it is required on the
+# default branch and the auto-merge gate keys off it; never rename it here.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+  push:
+    branches: [main]
+  # Re-hold / release open PRs when the base branch's own CI flips red/green.
+  check_suite:
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number to evaluate
+        required: true
+
+permissions:
+  checks: write # post/flip the merge-safety check-run
+  statuses: write # mirror the verdict to the merge-safety commit status
+  pull-requests: write # reconcile update-required / merge-conflict labels
+  contents: read
+  actions: write # re-dispatch this workflow per open PR when the base moves
+
+jobs:
+  merge-safety:
+    # Skip, without a runner, the events the action would no-op on: another app's
+    # check suite, a non-default branch's suite, a tag push, a branch deletion.
+    if: >-
+      (github.event_name != 'push' && github.event_name != 'check_suite') ||
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && !github.event.deleted) ||
+      (github.event_name == 'check_suite' &&
+       github.event.check_suite.app.slug == 'github-actions' &&
+       github.event.check_suite.head_branch == github.event.repository.default_branch)
+    # Base-moved fan-outs (push / check_suite) serialize per branch and are never
+    # cancelled, so no base move is dropped. Every per-PR evaluate run gets a group
+    # of its own (keyed on run_id), so a burst of PR events never queues or cancels
+    # a run — evaluate is idempotent, so overlapping runs are safe.
+    concurrency:
+      group: >-
+        ${{ (github.event_name == 'push' || github.event_name == 'check_suite')
+        && format('merge-safety-invalidate-{0}', github.event_name == 'push' && github.ref_name || github.event.check_suite.head_branch)
+        || format('merge-safety-evaluate-{0}', github.run_id) }}
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./
+        with:
+          pr: ${{ inputs.pr }}

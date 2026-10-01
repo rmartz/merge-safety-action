@@ -1,0 +1,35 @@
+{
+  "name": "@rmartz/merge-safety-action",
+  "version": "0.0.0-development",
+  "private": true,
+  "description": "Composite GitHub Action that posts the @rmartz/merge-safety check-run in a consuming repo's CI, kept current by Dependabot + bot-automerge.",
+  "keywords": [
+    "ci",
+    "merge-safety",
+    "github-actions",
+    "composite-action",
+    "dependabot"
+  ],
+  "homepage": "https://github.com/rmartz/merge-safety-action#readme",
+  "bugs": {
+    "url": "https://github.com/rmartz/merge-safety-action/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rmartz/merge-safety-action.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "@rmartz/merge-safety": "0.13.0"
+  },
+  "devDependencies": {
+    "prettier": "^3.9.9"
+  }
+}

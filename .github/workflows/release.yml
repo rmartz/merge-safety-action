@@ -1,0 +1,32 @@
+name: Release
+
+# Automated releases via the fleet's shared semantic-release workflow
+# (rmartz/semantic-release-ci). On every push to main it analyzes the
+# Conventional-Commit history and, when a release is warranted, creates the git
+# tag + GitHub Release. It publishes NOTHING to a package registry and commits
+# NOTHING back to the repo (no @semantic-release/npm, no @semantic-release/git),
+# so the built-in GITHUB_TOKEN suffices — no PAT. The release toolchain
+# (semantic-release, its plugins and the changelog preset) lives in
+# semantic-release-ci, where a toolchain bump is tested before it reaches this
+# pin; the options stay here in .releaserc.json.
+#
+# The key cadence: a Dependabot `fix(deps): bump @rmartz/merge-safety …` PR is
+# auto-merged by bot-automerge, and `fix:` maps to a patch (the stock
+# Conventional-Commits default), so that CLI bump cuts a new action release.
+# Consumers then pick it up via their own Dependabot github-actions ecosystem.
+
+on:
+  push:
+    branches: [main]
+
+# The shared workflow declares no permissions of its own; it runs with these.
+# Releases are serialized per repository inside it. Nothing is installed from
+# this repo's package.json, so no `packages: read` is needed.
+permissions:
+  contents: write # create tags + GitHub Releases
+  issues: write # semantic-release/github housekeeping
+  pull-requests: write
+
+jobs:
+  release:
+    uses: rmartz/semantic-release-ci/.github/workflows/semantic-release.yml@55b1f6145b85738f94ad87c12c9d4f41ab7818b4 # v2.0.0

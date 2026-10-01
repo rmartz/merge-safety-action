@@ -1,0 +1,25 @@
+name: Repo Hygiene
+
+# Thin caller of the rmartz/repo-hygiene-action composite Action, run against this
+# repo's own tree. The `@<sha>` pin is bumped by Dependabot. Checks are configured
+# in .repo-hygiene.yml.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  statuses: write # one commit status per check
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: rmartz/repo-hygiene-action@3bc251cc227c72370dabd3c2ea859d70c3d98321 # v4.0.0
+        with:
+          checks: conflict-markers action-pins package-pins docs-links md-pairing okf okf-index file-caps
+          config: .repo-hygiene.yml

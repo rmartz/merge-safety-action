@@ -1,0 +1,82 @@
+version: 2
+
+# @rmartz/merge-safety is public on npmjs, so Dependabot needs no registry block
+# or DEPENDABOT_PACKAGES_TOKEN secret to see new CLI versions. Every npm
+# dependency here now comes from the one default registry.
+
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      # First-party `rmartz/*` actions and reusable workflows are exempt from the
+      # default release cooldown (see the npm entry below); third-party actions
+      # keep it.
+      # Explicit, so declaring the block can't change the third-party default.
+      default-days: 3
+      exclude:
+        - 'rmartz/*'
+    commit-message:
+      prefix: chore
+      include: scope
+    groups:
+      # Every action bump, majors included, lands in one PR. bot-automerge holds
+      # a group containing a major for human review (fetch-metadata reports the
+      # group's highest update-type), and a major that breaks CI is split out into
+      # its own fix PR rather than holding the rest of the group back.
+      github-actions:
+        patterns:
+          - '*'
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      # Daily, not weekly: a new @rmartz/merge-safety release is what cuts a new
+      # Action release, so this interval bounds how long a CLI fix waits before it
+      # can reach consumers. Dev deps ride along but are grouped, so the extra
+      # churn is at most one grouped PR per day.
+      interval: daily
+    commit-message:
+      # Production dep bumps (@rmartz/merge-safety) get `fix(deps): …`, which
+      # semantic-release maps to a patch — cutting the new Action release that
+      # ships the CLI bump to consumers. Development deps get `prefix-development`
+      # (`chore(deps): …`), which is release-neutral so a tooling bump never tags.
+      prefix: fix
+      prefix-development: chore
+      include: scope
+    groups:
+      # Prettier isolated so a reformatting bump can't hide in a catch-all.
+      prettier:
+        patterns:
+          - 'prettier'
+      dev-dependencies:
+        dependency-type: development
+        exclude-patterns:
+          - 'prettier'
+        update-types:
+          - minor
+          - patch
+      # @rmartz/merge-safety is the only production dep; its patch/minor bump is
+      # what bot-automerge auto-merges and, titled `fix(deps): …`, semantic-release
+      # maps to a patch, so the bump cuts a new action release. A major bump falls
+      # out to its own PR (not auto-merged) for a human to review. While the CLI is
+      # on 0.x, its breaking releases are minors (0.13 -> 0.14) and so ride this
+      # group; the action absorbs CLI-surface changes (bin name, flags) itself, so
+      # consumers only see the check-run, whose name is a frozen fleet contract.
+      production-dependencies:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+    cooldown:
+      # Since 2026-07-14 Dependabot waits 3 days after a release before proposing
+      # it. First-party `@rmartz/*` packages (the @rmartz/merge-safety CLI among
+      # them) are published from our own repos with provenance, so the wait buys no
+      # supply-chain safety and just holds their fixes back — defeating the daily
+      # interval above. Exempting them lets a new CLI version arrive on the next
+      # daily run. Every third-party dependency keeps the default cooldown.
+      # Explicit, so declaring the block can't change the third-party default.
+      default-days: 3
+      exclude:
+        - '@rmartz/*'

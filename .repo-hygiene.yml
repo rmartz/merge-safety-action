@@ -1,0 +1,30 @@
+# @rmartz/repo-hygiene check configuration for this repo, read by the
+# repo-hygiene.yml caller. Each section under `checks` is read by the check of
+# that name; `severity` (when set) overrides that check's default findings.
+checks:
+  # Intra-repo Markdown link integrity + anchor validation for docs pages.
+  docs-links:
+    roots: [docs]
+    anchors: true
+
+  # OKF docs-frontmatter conformance. This repo's pages are guide/reference/design
+  # pages with no first-party source tree to bind to, so every type is exempt from
+  # the `resource` requirement.
+  okf:
+    severity: error
+    types: [Reference, Guidance, Design]
+    resourceExemptTypes: [Reference, Guidance, Design]
+
+  okf-index:
+    severity: error
+
+  # AGENTS.md / CLAUDE.md must travel together; each CLAUDE.md is a bare wrapper.
+  md-pairing:
+    severity: error
+    wrapper: '@AGENTS.md'
+
+  file-caps:
+    overrides:
+      - glob: 'docs/**/*.md'
+        lines: { warn: 400, error: 600 }
+        bytes: { warn: 24KB, error: 40KB }

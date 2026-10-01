@@ -1,0 +1,175 @@
+name: 'Merge Safety'
+description: 'Post the merge-safety check-run (base-currency, breaking-change, and conflict verdict) for pull requests in the calling repository.'
+author: 'rmartz'
+
+branding:
+  icon: 'shield'
+  color: 'green'
+
+# A composite action that wraps the @rmartz/merge-safety CLI. It picks its
+# operation from the triggering event:
+#
+#   - a PR event (pull_request_target / pull_request) or the workflow_dispatch
+#     re-dispatch -> `evaluate` that one PR and post its `merge-safety` check-run;
+#   - a push to a branch, or the default branch's GitHub Actions check_suite
+#     completing -> `invalidate`: re-dispatch the caller workflow once per open PR
+#     based on the branch that moved, so each PR is re-evaluated against it.
+#
+# Every other event (a tag push, a branch deletion, another app's check suite) is
+# a no-op. The CLI version is the one pinned in this action's package-lock.json
+# (bumped by Dependabot and released as a new action version), so a given action
+# ref installs a reproducible CLI. The action checks out nothing in the caller's
+# workspace: `evaluate` fetches the base and PR head into its own scratch repo
+# under $RUNNER_TEMP. See docs/consuming.md.
+#
+# THE CHECK-RUN NAME `merge-safety` IS A FLEET CONTRACT — consumers require it on
+# their default branch and the auto-merge gate keys off it. The CLI owns the
+# name; nothing here sets or renames it.
+
+inputs:
+  pr:
+    description: >-
+      PR number to evaluate. Thread the caller's workflow_dispatch `pr` input
+      through here; on a PR event the event's own PR number is used instead.
+    required: false
+    default: ''
+  caller-workflow:
+    description: >-
+      Filename of the caller workflow that the invalidate fan-out re-dispatches
+      per PR. Empty (the default) uses the workflow this action is running in,
+      which is almost always right.
+    required: false
+    default: ''
+  token:
+    description: >-
+      Token for the GitHub API and git fetches. Defaults to the workflow
+      GITHUB_TOKEN, which needs the write scopes listed in docs/consuming.md.
+    required: false
+    default: ${{ github.token }}
+  node-version:
+    description: 'Node.js version to run the CLI under.'
+    required: false
+    default: '22'
+
+runs:
+  using: composite
+  steps:
+    # Decide what this event asks for before installing anything, so a no-op
+    # event costs no setup-node or npm ci.
+    - name: Select merge-safety operation
+      id: mode
+      shell: bash
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        DELETED: ${{ github.event.deleted }}
+        SUITE_APP: ${{ github.event.check_suite.app.slug }}
+        SUITE_BRANCH: ${{ github.event.check_suite.head_branch }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        EVENT_PR: ${{ github.event.pull_request.number }}
+        EVENT_BASE: ${{ github.event.pull_request.base.ref }}
+        INPUT_PR: ${{ inputs.pr }}
+        INPUT_CALLER_WORKFLOW: ${{ inputs.caller-workflow }}
+      run: |
+        set -euo pipefail
+        mode=skip
+        case "${EVENT_NAME}" in
+          push)
+            # A tag push or a branch deletion moves no PR's base.
+            if [[ "${GITHUB_REF}" == refs/heads/* && "${DELETED}" != "true" ]]; then
+              mode=invalidate
+              echo "base-branch=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            fi
+            ;;
+          check_suite)
+            # Only the default branch's own GitHub Actions CI concluding flips
+            # base health; one suite per base commit, not per deploy integration.
+            if [[ "${SUITE_APP}" == "github-actions" && "${SUITE_BRANCH}" == "${DEFAULT_BRANCH}" ]]; then
+              mode=invalidate
+              echo "base-branch=${SUITE_BRANCH}" >> "$GITHUB_OUTPUT"
+            fi
+            ;;
+          *)
+            pr="${EVENT_PR:-${INPUT_PR}}"
+            if [[ -z "${pr}" ]]; then
+              echo "::error::merge-safety: no PR number on a ${EVENT_NAME} event; pass the 'pr' input."
+              exit 1
+            fi
+            mode=evaluate
+            echo "pr=${pr}" >> "$GITHUB_OUTPUT"
+            echo "base-ref=${EVENT_BASE:-${DEFAULT_BRANCH}}" >> "$GITHUB_OUTPUT"
+            ;;
+        esac
+        if [[ "${mode}" == "invalidate" ]]; then
+          # GITHUB_WORKFLOW_REF is "owner/repo/.github/workflows/<file>@<ref>".
+          workflow="${INPUT_CALLER_WORKFLOW}"
+          if [[ -z "${workflow}" ]]; then
+            workflow="${GITHUB_WORKFLOW_REF%@*}"
+            workflow="${workflow##*/}"
+          fi
+          echo "caller-workflow=${workflow}" >> "$GITHUB_OUTPUT"
+        fi
+        echo "mode=${mode}" >> "$GITHUB_OUTPUT"
+        echo "merge-safety: ${mode} (${EVENT_NAME})"
+
+    - if: steps.mode.outputs.mode != 'skip'
+      uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    # Install the pinned CLI into this action's own directory, not the consumer
+    # workspace — $GITHUB_ACTION_PATH holds this action's package.json, lockfile,
+    # and .npmrc (which pins the @rmartz scope to npmjs). The package is public on
+    # npmjs, so the install needs no token.
+    - if: steps.mode.outputs.mode != 'skip'
+      name: Install pinned @rmartz/merge-safety
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: npm ci --ignore-scripts --no-audit --no-fund
+
+    # Fetch the base branch (full history: merge-base and diffs need it) and the
+    # PR head as git data into a scratch repo, leaving the caller's workspace
+    # untouched. The token rides in a per-repo extraheader, as actions/checkout
+    # does, so a private consumer's fetch authenticates.
+    - if: steps.mode.outputs.mode == 'evaluate'
+      name: Fetch base and PR head
+      shell: bash
+      env:
+        TOKEN: ${{ inputs.token }}
+        BASE_REF: ${{ steps.mode.outputs.base-ref }}
+        PR_NUMBER: ${{ steps.mode.outputs.pr }}
+      run: |
+        set -euo pipefail
+        repo_dir="${RUNNER_TEMP}/merge-safety-repo"
+        rm -rf "${repo_dir}"
+        git init --quiet "${repo_dir}"
+        git -C "${repo_dir}" remote add origin "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+        auth="$(printf 'x-access-token:%s' "${TOKEN}" | base64 | tr -d '\n')"
+        echo "::add-mask::${auth}"
+        git -C "${repo_dir}" config "http.${GITHUB_SERVER_URL}/.extraheader" "AUTHORIZATION: basic ${auth}"
+        git -C "${repo_dir}" fetch --quiet --no-tags origin \
+          "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}" \
+          "+refs/pull/${PR_NUMBER}/head:refs/remotes/origin/pr/${PR_NUMBER}"
+
+    - if: steps.mode.outputs.mode == 'evaluate'
+      name: Evaluate PR
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        BASE_REF: ${{ steps.mode.outputs.base-ref }}
+        PR_NUMBER: ${{ steps.mode.outputs.pr }}
+      run: >-
+        "${GITHUB_ACTION_PATH}/node_modules/.bin/merge-safety" evaluate
+        --pr "${PR_NUMBER}" --repo "${GITHUB_REPOSITORY}"
+        --base "origin/${BASE_REF}" --cwd "${RUNNER_TEMP}/merge-safety-repo"
+
+    - if: steps.mode.outputs.mode == 'invalidate'
+      name: Invalidate open PRs (base moved)
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        BASE_BRANCH: ${{ steps.mode.outputs.base-branch }}
+        CALLER_WORKFLOW: ${{ steps.mode.outputs.caller-workflow }}
+      run: >-
+        "${GITHUB_ACTION_PATH}/node_modules/.bin/merge-safety" invalidate
+        --repo "${GITHUB_REPOSITORY}" --workflow "${CALLER_WORKFLOW}"
+        --base-branch "${BASE_BRANCH}"
