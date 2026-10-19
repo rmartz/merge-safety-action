@@ -12,6 +12,7 @@ on:
 permissions:
   contents: read
   statuses: write # one commit status per check
+  actions: write # cancel the run when a check is inconclusive (on-inconclusive: cancel)
 
 jobs:
   hygiene:
