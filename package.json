@@ -30,6 +30,6 @@
     "@rmartz/merge-safety": "0.18.0"
   },
   "devDependencies": {
-    "prettier": "^3.9.10"
+    "prettier": "^3.10.1"
   }
 }
