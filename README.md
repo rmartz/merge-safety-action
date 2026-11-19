@@ -40,7 +40,7 @@ then require the `merge-safety` check on the default branch.
 | `pr`              | `''`                  | PR to evaluate on `workflow_dispatch`. PR events use their own number. |
 | `caller-workflow` | `''`                  | Workflow file `invalidate` re-dispatches. Empty uses the running one.  |
 | `token`           | `${{ github.token }}` | Token for the API and git fetches (needs the caller's write scopes).   |
-| `node-version`    | `'22'`                | Node.js version the CLI runs under.                                    |
+| `node-version`    | `'26'`                | Node.js version the CLI runs under (current LTS; older accepted).      |
 
 There is no `version` input: the CLI version is the one pinned in this Action's
 lockfile.
