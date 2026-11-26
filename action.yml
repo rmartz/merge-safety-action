@@ -47,9 +47,11 @@ inputs:
     required: false
     default: ${{ github.token }}
   node-version:
-    description: 'Node.js version to run the CLI under.'
+    description: >-
+      Node.js version to run the CLI under. The pinned CLI requires Node 26 or
+      newer, so don't set this below 26.
     required: false
-    default: '22'
+    default: '26'
 
 runs:
   using: composite
