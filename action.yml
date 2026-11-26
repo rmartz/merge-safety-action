@@ -47,7 +47,9 @@ inputs:
     required: false
     default: ${{ github.token }}
   node-version:
-    description: 'Node.js version to run the CLI under. Defaults to 26, the current LTS; pass an older version to keep running on it.'
+    description: >-
+      Node.js version to run the CLI under. The pinned CLI requires Node 26 or
+      newer, so don't set this below 26.
     required: false
     default: '26'
 
